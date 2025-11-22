@@ -1,0 +1,25 @@
+# Atomic Project Build Configuration
+
+# Source files to compile
+sources: compiler/main.carbon, compiler/lexer.carbon, compiler/parser.carbon
+
+# Output executable name
+output: atomic-compiler.exe
+
+# Optimization level (0-3)
+optimization: 2
+
+# Include debug information
+debug: false
+
+# Target platform (native, windows, linux, macos)
+target: native
+
+# Include paths for headers/modules
+includes: stdlib/, gui/, runtime/
+
+# Libraries to link against
+libraries: kernel32, user32, gdi32
+
+# Preprocessor defines
+defines: ATOMIC_VERSION=1.0, ATOMIC_TARGET_WINDOWS
