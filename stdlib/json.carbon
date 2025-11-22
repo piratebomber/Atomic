@@ -748,27 +748,259 @@ fn SerializeJSON(value: JSONValue, pretty_print: Bool) -> String {
     return serializer.Serialize(value);
 }
 
+// Enhanced string parsing functionality
+class JSONStringParser {
+    fn ParseString(text: String) -> Result(String, String) {
+        if (text.IsEmpty()) {
+            return Result(String, String).Error("Empty string input");
+        }
+        
+        var result: String = "";
+        var i: u64 = 0;
+        
+        while (i < text.Length()) {
+            var ch: i32 = text[i];
+            
+            if (ch == '\\' and i + 1 < text.Length()) {
+                var next: i32 = text[i + 1];
+                match (next) {
+                    case ('"') { result += "\""; i += 2; }
+                    case ('\\') { result += "\\"; i += 2; }
+                    case ('/') { result += "/"; i += 2; }
+                    case ('b') { result += "\b"; i += 2; }
+                    case ('f') { result += "\f"; i += 2; }
+                    case ('n') { result += "\n"; i += 2; }
+                    case ('r') { result += "\r"; i += 2; }
+                    case ('t') { result += "\t"; i += 2; }
+                    case ('u') {
+                        if (i + 5 < text.Length()) {
+                            var hex: String = text.Substring(i + 2, 4);
+                            var unicode_result: Result(String, String) = ParseUnicodeEscape(hex);
+                            if (unicode_result.IsOk()) {
+                                result += unicode_result.Value();
+                                i += 6;
+                            } else {
+                                return unicode_result;
+                            }
+                        } else {
+                            return Result(String, String).Error("Incomplete unicode escape");
+                        }
+                    }
+                    default {
+                        return Result(String, String).Error("Invalid escape sequence");
+                    }
+                }
+            } else {
+                result += CharToString(ch);
+                i += 1;
+            }
+        }
+        
+        return Result(String, String).Ok(result);
+    }
+}
+
+// Number formatting functions
+fn IntToHex(value: i32, width: i32) -> String {
+    var hex_chars: String = "0123456789ABCDEF";
+    var result: String = "";
+    var num: u32 = value as u32;
+    
+    if (num == 0) {
+        result = "0";
+    } else {
+        while (num > 0) {
+            var digit: u32 = num % 16;
+            result = CharToString(hex_chars[digit]) + result;
+            num = num / 16;
+        }
+    }
+    
+    // Pad with zeros to reach desired width
+    while (result.Length() < width) {
+        result = "0" + result;
+    }
+    
+    return result;
+}
+
+fn Int64ToHex(value: i64, width: i32) -> String {
+    var hex_chars: String = "0123456789ABCDEF";
+    var result: String = "";
+    var num: u64 = value as u64;
+    
+    if (num == 0) {
+        result = "0";
+    } else {
+        while (num > 0) {
+            var digit: u64 = num % 16;
+            result = CharToString(hex_chars[digit]) + result;
+            num = num / 16;
+        }
+    }
+    
+    while (result.Length() < width) {
+        result = "0" + result;
+    }
+    
+    return result;
+}
+
+// Unicode to UTF-8 conversion
+fn UnicodeToUtf8(code_point: u32) -> String {
+    if (code_point <= 0x7F) {
+        // 1-byte UTF-8
+        return CharToString(code_point as i32);
+    } else if (code_point <= 0x7FF) {
+        // 2-byte UTF-8
+        var byte1: u32 = 0xC0 | (code_point >> 6);
+        var byte2: u32 = 0x80 | (code_point & 0x3F);
+        return CharToString(byte1 as i32) + CharToString(byte2 as i32);
+    } else if (code_point <= 0xFFFF) {
+        // 3-byte UTF-8
+        var byte1: u32 = 0xE0 | (code_point >> 12);
+        var byte2: u32 = 0x80 | ((code_point >> 6) & 0x3F);
+        var byte3: u32 = 0x80 | (code_point & 0x3F);
+        return CharToString(byte1 as i32) + CharToString(byte2 as i32) + CharToString(byte3 as i32);
+    } else if (code_point <= 0x10FFFF) {
+        // 4-byte UTF-8
+        var byte1: u32 = 0xF0 | (code_point >> 18);
+        var byte2: u32 = 0x80 | ((code_point >> 12) & 0x3F);
+        var byte3: u32 = 0x80 | ((code_point >> 6) & 0x3F);
+        var byte4: u32 = 0x80 | (code_point & 0x3F);
+        return CharToString(byte1 as i32) + CharToString(byte2 as i32) + CharToString(byte3 as i32) + CharToString(byte4 as i32);
+    } else {
+        return "";
+    }
+}
+
+fn ParseUnicodeEscape(hex: String) -> Result(String, String) {
+    if (hex.Length() != 4) {
+        return Result(String, String).Error("Invalid unicode escape length");
+    }
+    
+    var code_point: u32 = 0;
+    var i: u64 = 0;
+    
+    while (i < 4) {
+        var ch: i32 = hex[i];
+        var digit: u32 = 0;
+        
+        if (ch >= '0' and ch <= '9') {
+            digit = (ch - '0') as u32;
+        } else if (ch >= 'A' and ch <= 'F') {
+            digit = (ch - 'A' + 10) as u32;
+        } else if (ch >= 'a' and ch <= 'f') {
+            digit = (ch - 'a' + 10) as u32;
+        } else {
+            return Result(String, String).Error("Invalid hex digit in unicode escape");
+        }
+        
+        code_point = code_point * 16 + digit;
+        i += 1;
+    }
+    
+    return Result(String, String).Ok(UnicodeToUtf8(code_point));
+}
+
 // Helper functions for string conversion
 fn StringToFloat(str: String) -> f64 {
-    // Implementation would convert string to floating point number
-    // This is a placeholder - real implementation would parse the string
-    return 0.0;
+    var result: f64 = 0.0;
+    var negative: Bool = False;
+    var decimal_part: f64 = 0.0;
+    var decimal_places: i32 = 0;
+    var in_decimal: Bool = False;
+    var start: u64 = 0;
+    
+    if (str.Length() > 0 and str[0] == '-') {
+        negative = True;
+        start = 1;
+    } else if (str.Length() > 0 and str[0] == '+') {
+        start = 1;
+    }
+    
+    var i: u64 = start;
+    while (i < str.Length()) {
+        var ch: i32 = str[i];
+        
+        if (ch >= '0' and ch <= '9') {
+            var digit: f64 = (ch - '0') as f64;
+            if (in_decimal) {
+                decimal_places += 1;
+                decimal_part = decimal_part * 10.0 + digit;
+            } else {
+                result = result * 10.0 + digit;
+            }
+        } else if (ch == '.' and not in_decimal) {
+            in_decimal = True;
+        } else {
+            break;
+        }
+        
+        i += 1;
+    }
+    
+    if (decimal_places > 0) {
+        var divisor: f64 = 1.0;
+        var j: i32 = 0;
+        while (j < decimal_places) {
+            divisor *= 10.0;
+            j += 1;
+        }
+        result += decimal_part / divisor;
+    }
+    
+    return negative ? -result : result;
 }
 
 fn FloatToString(value: f64) -> String {
-    // Implementation would convert floating point to string
-    // This is a placeholder - real implementation would format the number
-    return "0.0";
+    if (value == 0.0) {
+        return "0.0";
+    }
+    
+    var negative: Bool = value < 0.0;
+    var abs_value: f64 = negative ? -value : value;
+    
+    var integer_part: i64 = abs_value as i64;
+    var fractional_part: f64 = abs_value - (integer_part as f64);
+    
+    var result: String = negative ? "-" : "";
+    result += Int64ToString(integer_part);
+    result += ".";
+    
+    // Format fractional part (up to 6 decimal places)
+    var precision: i32 = 6;
+    var i: i32 = 0;
+    while (i < precision and fractional_part > 0.0) {
+        fractional_part *= 10.0;
+        var digit: i32 = (fractional_part as i32) % 10;
+        result += CharToString('0' + digit);
+        fractional_part -= digit as f64;
+        i += 1;
+    }
+    
+    // Remove trailing zeros
+    while (result.EndsWith("0") and not result.EndsWith(".0")) {
+        result = result.Substring(0, result.Length() - 1);
+    }
+    
+    return result;
 }
 
-fn IntToHex(value: i32, width: i32) -> String {
-    // Implementation would convert integer to hexadecimal string
-    // This is a placeholder
-    return "0000";
-}
-
-fn UnicodeToUtf8(code_point: u32) -> String {
-    // Implementation would convert Unicode code point to UTF-8 string
-    // This is a placeholder
-    return "";
+fn Int64ToString(value: i64) -> String {
+    if (value == 0) {
+        return "0";
+    }
+    
+    var negative: Bool = value < 0;
+    var abs_value: u64 = negative ? (-value) as u64 : value as u64;
+    var result: String = "";
+    
+    while (abs_value > 0) {
+        var digit: u64 = abs_value % 10;
+        result = CharToString('0' + (digit as i32)) + result;
+        abs_value = abs_value / 10;
+    }
+    
+    return negative ? "-" + result : result;
 }
