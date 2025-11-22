@@ -494,16 +494,16 @@ class YAMLParser {
         
         // Numeric values with 64-bit support
         if (self.IsInteger(trimmed)) {
-            var int_result: Optional(i64) = self.ParseInteger64(trimmed);
-            if (int_result.IsSome()) {
-                return Result(YAMLNode, String).Ok(YAMLNode.CreateInt(int_result.Unwrap()));
+            var int_result: Result(i64, String) = TryStringToInt64(trimmed);
+            if (int_result.IsOk()) {
+                return Result(YAMLNode, String).Ok(YAMLNode.CreateInt(int_result.Value()));
             }
         }
         
         if (self.IsFloat(trimmed)) {
-            var float_result: Optional(f64) = self.ParseFloat64(trimmed);
-            if (float_result.IsSome()) {
-                return Result(YAMLNode, String).Ok(YAMLNode.CreateFloat(float_result.Unwrap()));
+            var float_result: Result(f64, String) = TryStringToFloat64(trimmed);
+            if (float_result.IsOk()) {
+                return Result(YAMLNode, String).Ok(YAMLNode.CreateFloat(float_result.Value()));
             }
         }
         
@@ -612,132 +612,7 @@ class YAMLParser {
         return has_dot or has_exp;
     }
     
-    fn ParseInteger64(self: Self, value: String) -> Optional(i64) {
-        var result: i64 = 0;
-        var negative: Bool = False;
-        var start: u64 = 0;
-        var base: i64 = 10;
-        
-        if (value[0] == '-') {
-            negative = True;
-            start = 1;
-        } else if (value[0] == '+') {
-            start = 1;
-        }
-        
-        // Handle different bases
-        if (value.StartsWith("0x") or value.StartsWith("0X")) {
-            base = 16;
-            start = 2;
-        } else if (value.StartsWith("0o") or value.StartsWith("0O")) {
-            base = 8;
-            start = 2;
-        } else if (value.StartsWith("0b") or value.StartsWith("0B")) {
-            base = 2;
-            start = 2;
-        }
-        
-        for (i: u64 in Range(start, value.Length())) {
-            var c: u8 = value[i];
-            var digit: i64 = 0;
-            
-            if (c >= '0' and c <= '9') {
-                digit = (c - '0') as i64;
-            } else if (c >= 'a' and c <= 'f') {
-                digit = (c - 'a' + 10) as i64;
-            } else if (c >= 'A' and c <= 'F') {
-                digit = (c - 'A' + 10) as i64;
-            } else {
-                return Optional(i64).None();
-            }
-            
-            if (digit >= base) {
-                return Optional(i64).None();
-            }
-            
-            // Check for overflow
-            if (result > (9223372036854775807 - digit) / base) {
-                return Optional(i64).None();
-            }
-            
-            result = result * base + digit;
-        }
-        
-        if (negative) {
-            result = -result;
-        }
-        
-        return Optional(i64).Some(result);
-    }
-    
-    fn ParseFloat64(self: Self, value: String) -> Optional(f64) {
-        // Simplified float parsing - in real implementation would use proper IEEE 754 parsing
-        var result: f64 = 0.0;
-        var negative: Bool = False;
-        var start: u64 = 0;
-        var decimal_places: i32 = 0;
-        var in_decimal: Bool = False;
-        var in_exponent: Bool = False;
-        var exponent: i32 = 0;
-        var exp_negative: Bool = False;
-        
-        if (value[0] == '-') {
-            negative = True;
-            start = 1;
-        } else if (value[0] == '+') {
-            start = 1;
-        }
-        
-        for (i: u64 in Range(start, value.Length())) {
-            var c: u8 = value[i];
-            
-            if (c == '.') {
-                in_decimal = True;
-            } else if (c == 'e' or c == 'E') {
-                in_exponent = True;
-                if (i + 1 < value.Length() and value[i + 1] == '-') {
-                    exp_negative = True;
-                    i += 1;
-                } else if (i + 1 < value.Length() and value[i + 1] == '+') {
-                    i += 1;
-                }
-            } else if (c >= '0' and c <= '9') {
-                var digit: f64 = (c - '0') as f64;
-                
-                if (in_exponent) {
-                    exponent = exponent * 10 + (digit as i32);
-                } else if (in_decimal) {
-                    decimal_places += 1;
-                    result = result + digit / (self.Power10(decimal_places) as f64);
-                } else {
-                    result = result * 10.0 + digit;
-                }
-            }
-        }
-        
-        if (in_exponent) {
-            var exp_multiplier: f64 = self.Power10(exponent) as f64;
-            if (exp_negative) {
-                result = result / exp_multiplier;
-            } else {
-                result = result * exp_multiplier;
-            }
-        }
-        
-        if (negative) {
-            result = -result;
-        }
-        
-        return Optional(f64).Some(result);
-    }
-    
-    fn Power10(self: Self, exp: i32) -> i64 {
-        var result: i64 = 1;
-        for (i: i32 in Range(0, exp)) {
-            result *= 10;
-        }
-        return result;
-    }
+
     
     fn UnescapeString(self: Self, value: String) -> String {
         var result: String = "";
@@ -1308,13 +1183,19 @@ fn SerializeYAML(node: YAMLNode) -> String {
             return YAMLNode.CreateString(self.UnquoteString(trimmed));
         }
         
-        // Numbers
+        // Numbers with enhanced 64-bit support
         if (self.IsInteger(trimmed)) {
-            return YAMLNode.CreateInt(StringToInt64(trimmed));
+            var int_result: Result(i64, String) = TryStringToInt64(trimmed);
+            if (int_result.IsOk()) {
+                return YAMLNode.CreateInt(int_result.Value());
+            }
         }
         
         if (self.IsFloat(trimmed)) {
-            return YAMLNode.CreateFloat(StringToFloat64(trimmed));
+            var float_result: Result(f64, String) = TryStringToFloat64(trimmed);
+            if (float_result.IsOk()) {
+                return YAMLNode.CreateFloat(float_result.Value());
+            }
         }
         
         // Default to string
@@ -1782,23 +1663,337 @@ fn SerializeYAML(node: YAMLNode) -> String {
     return serializer.Serialize(node);
 }
 
+// Enhanced 64-bit number conversion functions
+class YAMLNumberConverter {
+    // Convert string to 64-bit integer with full logic
+    fn StringToInt64(str: String) -> Result(i64, String) {
+        if (str.IsEmpty()) {
+            return Result(i64, String).Error("Empty string");
+        }
+        
+        var result: i64 = 0;
+        var negative: Bool = False;
+        var start: u64 = 0;
+        var base: i64 = 10;
+        
+        // Handle sign
+        if (str[0] == '-') {
+            negative = True;
+            start = 1;
+        } else if (str[0] == '+') {
+            start = 1;
+        }
+        
+        if (start >= str.Length()) {
+            return Result(i64, String).Error("Invalid number format");
+        }
+        
+        // Detect base
+        if (str.Length() > start + 1) {
+            if (str[start] == '0') {
+                if (str[start + 1] == 'x' or str[start + 1] == 'X') {
+                    base = 16;
+                    start += 2;
+                } else if (str[start + 1] == 'o' or str[start + 1] == 'O') {
+                    base = 8;
+                    start += 2;
+                } else if (str[start + 1] == 'b' or str[start + 1] == 'B') {
+                    base = 2;
+                    start += 2;
+                }
+            }
+        }
+        
+        // Parse digits
+        var i: u64 = start;
+        while (i < str.Length()) {
+            var ch: i32 = str[i];
+            var digit: i64 = 0;
+            
+            if (ch >= '0' and ch <= '9') {
+                digit = (ch - '0') as i64;
+            } else if (base == 16 and ch >= 'a' and ch <= 'f') {
+                digit = (ch - 'a' + 10) as i64;
+            } else if (base == 16 and ch >= 'A' and ch <= 'F') {
+                digit = (ch - 'A' + 10) as i64;
+            } else {
+                return Result(i64, String).Error("Invalid digit for base");
+            }
+            
+            if (digit >= base) {
+                return Result(i64, String).Error("Digit out of range for base");
+            }
+            
+            // Check for overflow
+            var max_val: i64 = 9223372036854775807; // i64 max
+            if (result > (max_val - digit) / base) {
+                return Result(i64, String).Error("Integer overflow");
+            }
+            
+            result = result * base + digit;
+            i += 1;
+        }
+        
+        if (negative) {
+            result = -result;
+        }
+        
+        return Result(i64, String).Ok(result);
+    }
+    
+    // Convert string to 64-bit float with full logic
+    fn StringToFloat64(str: String) -> Result(f64, String) {
+        if (str.IsEmpty()) {
+            return Result(f64, String).Error("Empty string");
+        }
+        
+        var result: f64 = 0.0;
+        var negative: Bool = False;
+        var start: u64 = 0;
+        var decimal_part: f64 = 0.0;
+        var decimal_places: i32 = 0;
+        var in_decimal: Bool = False;
+        var in_exponent: Bool = False;
+        var exponent: i32 = 0;
+        var exp_negative: Bool = False;
+        
+        // Handle sign
+        if (str[0] == '-') {
+            negative = True;
+            start = 1;
+        } else if (str[0] == '+') {
+            start = 1;
+        }
+        
+        if (start >= str.Length()) {
+            return Result(f64, String).Error("Invalid number format");
+        }
+        
+        // Special values
+        var trimmed: String = str.Substring(start);
+        if (trimmed == "inf" or trimmed == "Inf" or trimmed == "INF") {
+            return Result(f64, String).Ok(negative ? -1.0/0.0 : 1.0/0.0);
+        }
+        if (trimmed == "nan" or trimmed == "NaN" or trimmed == "NAN") {
+            return Result(f64, String).Ok(0.0/0.0);
+        }
+        
+        var i: u64 = start;
+        while (i < str.Length()) {
+            var ch: i32 = str[i];
+            
+            if (ch >= '0' and ch <= '9') {
+                var digit: f64 = (ch - '0') as f64;
+                
+                if (in_exponent) {
+                    exponent = exponent * 10 + (digit as i32);
+                } else if (in_decimal) {
+                    decimal_places += 1;
+                    decimal_part = decimal_part * 10.0 + digit;
+                } else {
+                    result = result * 10.0 + digit;
+                }
+            } else if (ch == '.' and not in_decimal and not in_exponent) {
+                in_decimal = True;
+            } else if ((ch == 'e' or ch == 'E') and not in_exponent) {
+                in_exponent = True;
+                if (i + 1 < str.Length()) {
+                    if (str[i + 1] == '-') {
+                        exp_negative = True;
+                        i += 1;
+                    } else if (str[i + 1] == '+') {
+                        i += 1;
+                    }
+                }
+            } else {
+                return Result(f64, String).Error("Invalid character in number");
+            }
+            
+            i += 1;
+        }
+        
+        // Apply decimal part
+        if (decimal_places > 0) {
+            var divisor: f64 = 1.0;
+            var j: i32 = 0;
+            while (j < decimal_places) {
+                divisor *= 10.0;
+                j += 1;
+            }
+            result += decimal_part / divisor;
+        }
+        
+        // Apply exponent
+        if (in_exponent) {
+            var exp_multiplier: f64 = 1.0;
+            var k: i32 = 0;
+            while (k < exponent) {
+                exp_multiplier *= 10.0;
+                k += 1;
+            }
+            
+            if (exp_negative) {
+                result /= exp_multiplier;
+            } else {
+                result *= exp_multiplier;
+            }
+        }
+        
+        if (negative) {
+            result = -result;
+        }
+        
+        return Result(f64, String).Ok(result);
+    }
+    
+    // Convert 64-bit integer to string with full logic
+    fn Int64ToString(value: i64) -> String {
+        if (value == 0) {
+            return "0";
+        }
+        
+        var negative: Bool = value < 0;
+        var abs_value: u64 = negative ? (-value) as u64 : value as u64;
+        var result: String = "";
+        
+        while (abs_value > 0) {
+            var digit: u64 = abs_value % 10;
+            result = CharToString('0' + (digit as i32)) + result;
+            abs_value = abs_value / 10;
+        }
+        
+        return negative ? "-" + result : result;
+    }
+    
+    // Convert 64-bit float to string with full logic
+    fn Float64ToString(value: f64) -> String {
+        // Handle special values
+        if (value != value) { // NaN check
+            return "nan";
+        }
+        if (value == 1.0/0.0) {
+            return "inf";
+        }
+        if (value == -1.0/0.0) {
+            return "-inf";
+        }
+        if (value == 0.0) {
+            return "0.0";
+        }
+        
+        var negative: Bool = value < 0.0;
+        var abs_value: f64 = negative ? -value : value;
+        
+        // Handle very large or very small numbers with scientific notation
+        if (abs_value >= 1e15 or (abs_value < 1e-4 and abs_value != 0.0)) {
+            return self.ToScientificNotation(value);
+        }
+        
+        var integer_part: i64 = abs_value as i64;
+        var fractional_part: f64 = abs_value - (integer_part as f64);
+        
+        var result: String = negative ? "-" : "";
+        result += self.Int64ToString(integer_part);
+        
+        if (fractional_part > 0.0) {
+            result += ".";
+            
+            // Format fractional part with up to 15 significant digits
+            var precision: i32 = 15;
+            var trailing_zeros: i32 = 0;
+            var i: i32 = 0;
+            
+            while (i < precision and fractional_part > 1e-15) {
+                fractional_part *= 10.0;
+                var digit: i32 = (fractional_part as i32) % 10;
+                
+                if (digit == 0) {
+                    trailing_zeros += 1;
+                } else {
+                    // Add any accumulated trailing zeros
+                    var j: i32 = 0;
+                    while (j < trailing_zeros) {
+                        result += "0";
+                        j += 1;
+                    }
+                    trailing_zeros = 0;
+                    result += CharToString('0' + digit);
+                }
+                
+                fractional_part -= (digit as f64);
+                i += 1;
+            }
+            
+            // Remove trailing zeros if no significant digits follow
+            if (trailing_zeros > 0 and result.EndsWith(".")) {
+                result += "0";
+            }
+        } else {
+            result += ".0";
+        }
+        
+        return result;
+    }
+    
+    fn ToScientificNotation(value: f64) -> String {
+        var negative: Bool = value < 0.0;
+        var abs_value: f64 = negative ? -value : value;
+        
+        var exponent: i32 = 0;
+        
+        if (abs_value >= 10.0) {
+            while (abs_value >= 10.0) {
+                abs_value /= 10.0;
+                exponent += 1;
+            }
+        } else if (abs_value < 1.0 and abs_value != 0.0) {
+            while (abs_value < 1.0) {
+                abs_value *= 10.0;
+                exponent -= 1;
+            }
+        }
+        
+        var mantissa: String = self.Float64ToString(abs_value);
+        if (mantissa.EndsWith(".0")) {
+            mantissa = mantissa.Substring(0, mantissa.Length() - 2);
+        }
+        
+        var result: String = negative ? "-" : "";
+        result += mantissa + "e";
+        result += exponent >= 0 ? "+" : "";
+        result += self.Int64ToString(exponent as i64);
+        
+        return result;
+    }
+}
+
+// Global converter instance
+var number_converter: YAMLNumberConverter = YAMLNumberConverter();
+
 // Helper functions for number conversion
 fn StringToInt64(str: String) -> i64 {
-    // Implementation would convert string to 64-bit integer
-    return 0;
+    var result: Result(i64, String) = number_converter.StringToInt64(str);
+    return result.IsOk() ? result.Value() : 0;
 }
 
 fn StringToFloat64(str: String) -> f64 {
-    // Implementation would convert string to 64-bit float
-    return 0.0;
+    var result: Result(f64, String) = number_converter.StringToFloat64(str);
+    return result.IsOk() ? result.Value() : 0.0;
 }
 
 fn Int64ToString(value: i64) -> String {
-    // Implementation would convert 64-bit integer to string
-    return "0";
+    return number_converter.Int64ToString(value);
 }
 
 fn Float64ToString(value: f64) -> String {
-    // Implementation would convert 64-bit float to string
-    return "0.0";
+    return number_converter.Float64ToString(value);
+}
+
+// Additional utility functions for safe conversion
+fn TryStringToInt64(str: String) -> Result(i64, String) {
+    return number_converter.StringToInt64(str);
+}
+
+fn TryStringToFloat64(str: String) -> Result(f64, String) {
+    return number_converter.StringToFloat64(str);
 }
